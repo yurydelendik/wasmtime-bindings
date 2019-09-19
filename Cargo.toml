@@ -1,0 +1,11 @@
+[package]
+name = "wasmtime-bindings"
+edition = "2018"
+version = "0.1.0"
+
+[workspace]
+
+[dependencies]
+wasmtime-bindings-macro = { path = "./wasmtime-bindings-macro" }
+wasmtime-bindings-common = { path = "./wasmtime-bindings-common" }
+
