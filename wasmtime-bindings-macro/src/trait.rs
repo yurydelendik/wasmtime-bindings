@@ -1,15 +1,15 @@
 use crate::attr::TransformAttributes;
-use crate::method::{need_context, transform_sig};
+use crate::method::{need_context, transform_sig, TransformSignatureResult};
 use crate::signature::{read_signature, Parameter, ParameterType};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{ItemTrait, TraitItem, TraitItemMethod};
+use syn::{Ident, ItemTrait, TraitItem, TraitItemMethod};
 
 fn generate_method_wrapper(
     m: &TraitItemMethod,
     wasm_bindings_common: TokenStream,
     attr: &TransformAttributes,
-) -> (TokenStream, TokenStream) {
+) -> (TokenStream, TokenStream, TokenStream, Ident) {
     let rsig = read_signature(&m.sig, &attr.context);
     let _self_ref = match rsig.params.get(0) {
         Some(Parameter {
@@ -21,11 +21,14 @@ fn generate_method_wrapper(
         }
     };
 
-    let (build_context, context_name) = if need_context(&rsig) {
+    let (build_context, build_cb_context, context_name) = if need_context(&rsig) {
         if let Some(context_name) = &attr.context {
             (
                 quote! {
                     let _ctx = #context_name :: from_vmctx(vmctx);
+                },
+                quote! {
+                    let _ctx = #context_name :: from_vmctx(self.vmctx);
                 },
                 quote! { #context_name },
             )
@@ -34,15 +37,27 @@ fn generate_method_wrapper(
                 quote! {
                     let _ctx = #wasm_bindings_common :: VMContextWrapper(vmctx);
                 },
+                quote! {
+                    let _ctx = #wasm_bindings_common :: VMContextWrapper(self.vmctx);
+                },
                 quote! { #wasm_bindings_common :: VMContextWrapper },
             )
         }
     } else {
-        (quote! { panic!() }, quote! { panic!() })
+        (quote! {}, quote! {}, quote! { panic!() })
     };
 
-    let (abi_params, abi_return, params_conversion, ret_conversion, call_args, sig_build) =
-        transform_sig(&rsig, context_name, wasm_bindings_common);
+    let TransformSignatureResult {
+        abi_params,
+        abi_return,
+        params_conversion,
+        ret_conversion,
+        call_args,
+        sig_build,
+        cb_params_conversion,
+        cb_ret_conversion,
+        cb_call_args,
+    } = transform_sig(&rsig, context_name, wasm_bindings_common.clone());
     let name = &m.sig.ident;
     let result = quote! {
         pub extern fn #name (#abi_params) #abi_return {
@@ -52,13 +67,24 @@ fn generate_method_wrapper(
             #ret_conversion
         }
     };
+    let sig = &m.sig;
+    let call_wrapper = quote! {
+        #sig {
+            type F = extern fn(#abi_params) #abi_return;
+            let (_f, vmctx) = #wasm_bindings_common :: get_body_as::<F>(&self . #name);
+            #build_cb_context
+            #cb_params_conversion
+            let _res = unsafe { (*_f)(#cb_call_args) };
+            #cb_ret_conversion
+        }
+    };
     let sig_build = quote! {
         pub fn #name () -> ir::Signature {
             #sig_build
             sig
         }
     };
-    (result, sig_build)
+    (result, sig_build, call_wrapper, name.clone())
 }
 
 pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStream {
@@ -69,19 +95,34 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
     let wasmtime_bindings_common = quote! { :: wasmtime_bindings_common };
     let mut mod_wrappers = TokenStream::new();
     let mut signatures = TokenStream::new();
+    let mut wrapper_fields = TokenStream::new();
+    let mut wrapper_fields_init = TokenStream::new();
+    let mut wrapper_impl = TokenStream::new();
     for i in &tr.items {
         if let TraitItem::Method(ref m) = i {
-            let (wrapper, signature) =
+            let (wrapper, signature, call_wrapper, export) =
                 generate_method_wrapper(m, wasmtime_bindings_common.clone(), &attr);
             mod_wrappers.extend(wrapper);
             signatures.extend(signature);
+
+            let export_name = export.to_string();
+            wrapper_fields.extend(quote! {
+                #export: InstanceHandleExport,
+            });
+            wrapper_fields_init.extend(quote! {
+                #export: instance.lookup(#export_name).unwrap(),
+            });
+            wrapper_impl.extend(call_wrapper);
         }
     }
 
     let mod_content = quote! {
         #vis mod #mod_name {
             use super::*;
-            use #wasmtime_bindings_common :: {VMContext, AbiParam, AbiRet, WasmMem};
+            use #wasmtime_bindings_common :: {
+                VMContext, InstanceHandle, InstanceHandleExport,
+                AbiPrimitive, WasmMem
+            };
             use ::std::boxed::Box;
             use ::std::cell::{Ref, RefMut, RefCell};
             type Subject = dyn super :: #ident;
@@ -105,6 +146,22 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
                 RefMut::map(State::from(vmctx).subject.borrow_mut(), |b| b.deref_mut())
             }
             #mod_wrappers
+
+            pub struct Wrapper {
+                #wrapper_fields
+                vmctx: *mut VMContext,
+            }
+            impl Wrapper {
+                pub fn new(mut instance: InstanceHandle) -> Self {
+                    Wrapper {
+                        #wrapper_fields_init
+                        vmctx: instance.vmctx_mut_ptr(),
+                    }
+                }
+            }
+            impl super :: #ident for Wrapper {
+                #wrapper_impl
+            }
 
             pub mod signatures {
                 use super::*;

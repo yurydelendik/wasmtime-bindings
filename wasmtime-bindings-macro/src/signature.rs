@@ -1,6 +1,6 @@
 use syn::{token, FnArg, Ident, Pat, Path, ReturnType, Signature, Type};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) struct RefFlag(Option<token::Mut>);
 
 impl RefFlag {

@@ -1,45 +1,27 @@
 pub use cranelift_codegen as codegen;
-pub use wasmtime_runtime::VMContext;
+pub use wasmtime_runtime::{Export as InstanceHandleExport, InstanceHandle, VMContext};
 
 pub trait IntoIRType {
     fn into_ir_type() -> codegen::ir::Type;
 }
 
-pub trait AbiRet {
+pub trait AbiPrimitive {
     type Abi: IntoIRType;
     fn convert_to_abi(self) -> Self::Abi;
     fn create_from_abi(ret: Self::Abi) -> Self;
 }
 
-pub trait AbiParam {
-    type Abi: IntoIRType;
-    fn convert_to_abi(self) -> Self::Abi;
-    fn create_from_abi(arg: Self::Abi) -> Self;
-}
-
 macro_rules! cast32 {
     ($($i:ident)*) => ($(
-        impl AbiRet for $i {
+        impl AbiPrimitive for $i {
             type Abi = i32;
 
             fn convert_to_abi(self) -> Self::Abi {
                 self as i32
             }
 
-            fn create_from_abi(ret: Self::Abi) -> Self {
-                ret as $i
-            }
-        }
-
-        impl AbiParam for $i {
-            type Abi = i32;
-
-            fn convert_to_abi(self) -> Self::Abi {
-                self as i32
-            }
-
-            fn create_from_abi(arg: Self::Abi) -> Self {
-                arg as $i
+            fn create_from_abi(p: Self::Abi) -> Self {
+                p as $i
             }
         }
     )*)
@@ -47,27 +29,15 @@ macro_rules! cast32 {
 
 macro_rules! cast64 {
     ($($i:ident)*) => ($(
-        impl AbiRet for $i {
+        impl AbiPrimitive for $i {
             type Abi = i64;
 
             fn convert_to_abi(self) -> Self::Abi {
                 self as i64
             }
 
-            fn create_from_abi(ret: Self::Abi) -> Self {
-                ret as $i
-            }
-        }
-
-        impl AbiParam for $i {
-            type Abi = i64;
-
-            fn convert_to_abi(self) -> Self::Abi {
-                self as i64
-            }
-
-            fn create_from_abi(arg: Self::Abi) -> Self {
-                arg as $i
+            fn create_from_abi(p: Self::Abi) -> Self {
+                p as $i
             }
         }
     )*)
@@ -108,4 +78,13 @@ impl IntoIRType for i64 {
 
 pub fn get_ir_type<T: IntoIRType>() -> codegen::ir::Type {
     T::into_ir_type()
+}
+
+pub fn get_body_as<T>(export: &InstanceHandleExport) -> (*const T, *mut VMContext) {
+    // TODO check signature?
+    if let InstanceHandleExport::Function { address, vmctx, .. } = export {
+        (*address as *const T, *vmctx)
+    } else {
+        panic!("not a function export")
+    }
 }
