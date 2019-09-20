@@ -98,6 +98,7 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
     let mut wrapper_fields = TokenStream::new();
     let mut wrapper_fields_init = TokenStream::new();
     let mut wrapper_impl = TokenStream::new();
+    let mut metadata = TokenStream::new();
     for i in &tr.items {
         if let TraitItem::Method(ref m) = i {
             let (wrapper, signature, call_wrapper, export) =
@@ -113,6 +114,13 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
                 #export: instance.lookup(#export_name).unwrap(),
             });
             wrapper_impl.extend(call_wrapper);
+            metadata.extend(quote! {
+                #wasmtime_bindings_common :: FnMetadata {
+                    name: #export_name,
+                    signature: signatures::#export(),
+                    address: unsafe { #export as *const u8 },
+                },
+            });
         }
     }
 
@@ -167,6 +175,10 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
                 use super::*;
                 use #wasmtime_bindings_common :: codegen :: {ir, isa};
                 #signatures
+            }
+
+            pub fn metadata() -> Vec<#wasmtime_bindings_common :: FnMetadata> {
+                vec![#metadata]
             }
         }
     };

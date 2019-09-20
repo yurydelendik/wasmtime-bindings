@@ -264,6 +264,13 @@ pub(crate) fn wrap_method(f: ItemFn, attr: TransformAttributes) -> TokenStream {
                         #cb_ret_conversion
                     }
                 }
+                pub fn metadata() -> #wasmtime_bindings_common :: FnMetadata {
+                    #wasmtime_bindings_common :: FnMetadata {
+                        name: stringify!(#name),
+                        signature: signature(),
+                        address: unsafe { super :: #name as *const u8 },
+                    }
+                }
             }
         }
     } else {

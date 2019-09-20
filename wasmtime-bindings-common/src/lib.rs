@@ -90,3 +90,9 @@ pub fn get_body_as<T>(export: &InstanceHandleExport) -> (*const T, *mut VMContex
         panic!("not a function export")
     }
 }
+
+pub struct FnMetadata {
+    pub name: &'static str,
+    pub signature: codegen::ir::Signature,
+    pub address: *const u8,
+}

@@ -15,6 +15,12 @@ impl AbiPrimitive for MyResult {
     }
 }
 
+#[wasmtime_method(module(hello_mod))]
+fn callback() {
+    println!("Calling back...");
+    println!("> Hello World!");
+}
+
 pub struct WasiCtx;
 
 impl WasiCtx {
