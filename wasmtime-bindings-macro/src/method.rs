@@ -257,10 +257,11 @@ pub(crate) fn wrap_method(f: ItemFn, attr: TransformAttributes) -> TokenStream {
                     }
                     pub fn call(&self, #inputs) #output {
                         type F = extern fn(#abi_params) #abi_return;
-                        let (_f, vmctx) = #wasmtime_bindings_common :: get_body_as::<F>(&self . export);
+                        let (_f, vmctx) = #wasmtime_bindings_common :: get_body(&self . export);
+                        let _f: F = unsafe { std::mem::transmute(_f) };
                         #build_cb_context
                         #cb_params_conversion
-                        let _res = unsafe { (*_f)(#cb_call_args) };
+                        let _res = _f(#cb_call_args);
                         #cb_ret_conversion
                     }
                 }

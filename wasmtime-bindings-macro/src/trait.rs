@@ -71,10 +71,11 @@ fn generate_method_wrapper(
     let call_wrapper = quote! {
         #sig {
             type F = extern fn(#abi_params) #abi_return;
-            let (_f, vmctx) = #wasm_bindings_common :: get_body_as::<F>(&self . #name);
+            let (_f, vmctx) = #wasm_bindings_common :: get_body(&self . #name);
+            let _f: F = unsafe { std::mem::transmute(_f) };
             #build_cb_context
             #cb_params_conversion
-            let _res = unsafe { (*_f)(#cb_call_args) };
+            let _res = _f(#cb_call_args);
             #cb_ret_conversion
         }
     };

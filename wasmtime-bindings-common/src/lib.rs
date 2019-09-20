@@ -1,5 +1,7 @@
 pub use cranelift_codegen as codegen;
-pub use wasmtime_runtime::{Export as InstanceHandleExport, InstanceHandle, VMContext};
+pub use wasmtime_runtime::{
+    Export as InstanceHandleExport, InstanceHandle, VMContext, VMFunctionBody,
+};
 
 mod r#macro;
 
@@ -82,10 +84,10 @@ pub fn get_ir_type<T: IntoIRType>() -> codegen::ir::Type {
     T::into_ir_type()
 }
 
-pub fn get_body_as<T>(export: &InstanceHandleExport) -> (*const T, *mut VMContext) {
+pub fn get_body(export: &InstanceHandleExport) -> (*const VMFunctionBody, *mut VMContext) {
     // TODO check signature?
     if let InstanceHandleExport::Function { address, vmctx, .. } = export {
-        (*address as *const T, *vmctx)
+        (*address, *vmctx)
     } else {
         panic!("not a function export")
     }
