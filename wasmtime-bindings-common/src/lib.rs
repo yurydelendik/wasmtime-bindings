@@ -54,7 +54,7 @@ pub trait WasmMem {
     fn as_off<T>(&self, ptr: *mut T) -> Self::Abi;
 }
 
-pub struct VMContextWrapper(*mut VMContext);
+pub struct VMContextWrapper(pub *mut VMContext);
 
 impl WasmMem for VMContextWrapper {
     type Abi = i32;

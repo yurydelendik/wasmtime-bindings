@@ -42,13 +42,13 @@ trait Module {
 }
 
 #[wasmtime_method(module(test_mod), context(WasiCtx))]
-pub fn test(ctx: *mut VMContext, wasi: WasiCtx, s: *mut u8, t: u8) -> MyResult {
+pub fn test(ctx: *mut VMContext, wasi: WasiCtx, s: &mut u8, t: u8) -> MyResult {
     panic!("test method")
 }
 
 #[wasmtime_method(module(test2_mod))]
-pub fn test2() -> u32 {
-    0
+pub fn test2() -> *mut u32 {
+    std::ptr::null_mut()
 }
 
 struct F;

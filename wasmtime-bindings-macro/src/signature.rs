@@ -1,30 +1,21 @@
 use syn::{token, FnArg, Ident, Pat, Path, ReturnType, Signature, Type};
 
-#[derive(Clone, Copy)]
-pub(crate) struct RefFlag(Option<token::Mut>);
-
-impl RefFlag {
-    pub(crate) fn mutable(&self) -> bool {
-        self.0.is_some()
-    }
-}
-
-impl From<Option<token::Mut>> for RefFlag {
-    fn from(m: Option<token::Mut>) -> Self {
-        RefFlag(m)
-    }
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum PtrOrRef {
+    Ptr,
+    Ref,
 }
 
 pub(crate) enum ParameterType<'a> {
     VMContextMutPtr,
-    SelfRef(RefFlag),
-    Context(Option<RefFlag>),
-    Ptr(&'a Type),
-    Simple(&'a Type, Option<RefFlag>),
+    SelfRef(Option<token::Mut>),
+    Context(Option<(PtrOrRef, Option<token::Mut>)>),
+    Ptr(&'a Type, PtrOrRef, Option<token::Mut>),
+    Simple(&'a Type),
 }
 
 pub(crate) enum Return<'a> {
-    Ptr(&'a Type),
+    Ptr(&'a Type, PtrOrRef, Option<token::Mut>),
     Simple(&'a Type),
 }
 
@@ -60,13 +51,16 @@ pub(crate) fn read_signature<'a>(
                         {
                             ParameterType::VMContextMutPtr
                         }
-                        _ => ParameterType::Ptr(&t.ty),
+                        Type::Path(ref p) if Some(&p.path) == context.as_ref() => {
+                            ParameterType::Context(Some((PtrOrRef::Ptr, pt.mutability.clone())))
+                        }
+                        _ => ParameterType::Ptr(&t.ty, PtrOrRef::Ptr, pt.mutability),
                     },
                     Type::Path(ref tp) => {
                         if context.as_ref().map(|c| *c == tp.path) == Some(true) {
                             ParameterType::Context(None)
                         } else {
-                            ParameterType::Simple(&t.ty, None)
+                            ParameterType::Simple(&t.ty)
                         }
                     }
                     Type::Reference(ref tr) => {
@@ -76,9 +70,9 @@ pub(crate) fn read_signature<'a>(
                             false
                         };
                         if is_context {
-                            ParameterType::Context(Some(tr.mutability.clone().into()))
+                            ParameterType::Context(Some((PtrOrRef::Ref, tr.mutability.clone())))
                         } else {
-                            ParameterType::Simple(&t.ty, Some(tr.mutability.clone().into()))
+                            ParameterType::Ptr(&t.ty, PtrOrRef::Ref, tr.mutability.clone())
                         }
                     }
                     _ => panic!("Unsupported param type declaration"),
@@ -97,7 +91,7 @@ pub(crate) fn read_signature<'a>(
     }
     let result = if let ReturnType::Type(_, ref rt) = sig.output {
         Some(match **rt {
-            Type::Ptr(_) => Return::Ptr(&**rt),
+            Type::Ptr(ref pt) => Return::Ptr(&**rt, PtrOrRef::Ptr, pt.mutability.clone()),
             Type::Path(_) => Return::Simple(&**rt),
             _ => panic!("Unsupported result type declaration"),
         })

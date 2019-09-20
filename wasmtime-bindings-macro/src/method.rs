@@ -1,19 +1,19 @@
 use crate::attr::TransformAttributes;
-use crate::signature::{read_signature, MethodSignature, ParameterType, Return};
+use crate::signature::{read_signature, MethodSignature, ParameterType, PtrOrRef, Return};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{self, Ident, ItemFn};
 
 pub(crate) fn need_context(sig: &MethodSignature) -> bool {
     for p in &sig.params {
-        if let ParameterType::Ptr(_) = p.ty {
+        if let ParameterType::Ptr(_, _, _) = p.ty {
             return true;
         }
         if let ParameterType::Context(_) = p.ty {
             return true;
         }
     }
-    if let Some(Return::Ptr(_)) = sig.result {
+    if let Some(Return::Ptr(_, _, _)) = sig.result {
         return true;
     }
     false
@@ -68,14 +68,20 @@ pub(crate) fn transform_sig(
                 // TODO ref
                 call_args.extend(quote! { _ctx, });
             }
-            ParameterType::Ptr(_ty) => {
+            ParameterType::Ptr(_ty, _rp, _mut) => {
                 abi_params.extend(quote! {
                     #internal_id: <#context_name as #wasmtime_bindings_common :: WasmMem>::Abi,
                 });
                 params_conversion.extend(quote! {
                     let #id = _ctx.as_ptr(#internal_id);
                 });
-                call_args.extend(quote! { #id , });
+                if let PtrOrRef::Ptr = _rp {
+                    call_args.extend(quote! { #id , });
+                } else if _mut.is_some() {
+                    call_args.extend(quote! { unsafe { &mut *#id } , });
+                } else {
+                    call_args.extend(quote! { unsafe { &*#id } , });
+                }
                 sig_build.extend(quote! {
                     sig.params.push(ir::AbiParam::new(
                         #wasmtime_bindings_common :: get_ir_type::<<#context_name as #wasmtime_bindings_common :: WasmMem>::Abi>()
@@ -86,7 +92,7 @@ pub(crate) fn transform_sig(
                 });
                 cb_call_args.extend(quote! { #internal_id , });
             }
-            ParameterType::Simple(ty, _ref) => {
+            ParameterType::Simple(ty) => {
                 abi_params.extend(quote! {
                     #internal_id: <#ty as #wasmtime_bindings_common :: AbiPrimitive>::Abi,
                 });
@@ -105,7 +111,7 @@ pub(crate) fn transform_sig(
                 cb_call_args.extend(quote! { #internal_id , });
             }
             ParameterType::SelfRef(ref r) => {
-                params_conversion.extend(if r.mutable() {
+                params_conversion.extend(if r.is_some() {
                     quote! { let _self = get_self_mut(vmctx); }
                 } else {
                     quote! { let _self = get_self(vmctx); }
@@ -114,7 +120,7 @@ pub(crate) fn transform_sig(
         }
     }
     let (abi_return, ret_conversion, sig_return, cb_ret_conversion) = match sig.result {
-        Some(Return::Ptr(_ty)) => (
+        Some(Return::Ptr(_ty, _rp, _mut)) => (
             quote! {
                 -> <#context_name as #wasmtime_bindings_common :: WasmMem>::Abi
             },
