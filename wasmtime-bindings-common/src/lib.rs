@@ -1,6 +1,8 @@
 pub use cranelift_codegen as codegen;
 pub use wasmtime_runtime::{Export as InstanceHandleExport, InstanceHandle, VMContext};
 
+mod r#macro;
+
 pub trait IntoIRType {
     fn into_ir_type() -> codegen::ir::Type;
 }
