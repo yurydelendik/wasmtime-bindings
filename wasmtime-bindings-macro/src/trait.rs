@@ -9,7 +9,7 @@ fn generate_method_wrapper(
     m: &TraitItemMethod,
     wasm_bindings_common: TokenStream,
     attr: &TransformAttributes,
-) -> (TokenStream, TokenStream, TokenStream, Ident) {
+) -> (TokenStream, TokenStream, TokenStream, TokenStream, Ident) {
     let rsig = read_signature(&m.sig, &attr.context);
     let _self_ref = match rsig.params.get(0) {
         Some(Parameter {
@@ -54,6 +54,8 @@ fn generate_method_wrapper(
         ret_conversion,
         call_args,
         sig_build,
+        cb_abi_params,
+        cb_abi_return,
         cb_params_conversion,
         cb_ret_conversion,
         cb_call_args,
@@ -67,9 +69,8 @@ fn generate_method_wrapper(
             #ret_conversion
         }
     };
-    let sig = &m.sig;
     let call_wrapper = quote! {
-        #sig {
+        pub fn #name(&self, #cb_abi_params) #cb_abi_return {
             type F = extern fn(#abi_params) #abi_return;
             let (_f, vmctx) = #wasm_bindings_common :: get_body(&self . #name);
             let _f: F = unsafe { std::mem::transmute(_f) };
@@ -85,7 +86,10 @@ fn generate_method_wrapper(
             sig
         }
     };
-    (result, sig_build, call_wrapper, name.clone())
+    let fn_type = quote! {
+        extern fn(#abi_params) #abi_return
+    };
+    (result, sig_build, call_wrapper, fn_type, name.clone())
 }
 
 pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStream {
@@ -102,7 +106,7 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
     let mut metadata = TokenStream::new();
     for i in &tr.items {
         if let TraitItem::Method(ref m) = i {
-            let (wrapper, signature, call_wrapper, export) =
+            let (wrapper, signature, call_wrapper, fn_type, export) =
                 generate_method_wrapper(m, wasmtime_bindings_common.clone(), &attr);
             mod_wrappers.extend(wrapper);
             signatures.extend(signature);
@@ -119,7 +123,7 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
                 #wasmtime_bindings_common :: FnMetadata {
                     name: #export_name,
                     signature: signatures::#export(),
-                    address: unsafe { #export as *const u8 },
+                    address: #export as #fn_type as *const _,
                 },
             });
         }
@@ -167,8 +171,7 @@ pub(crate) fn wrap_trait(tr: ItemTrait, attr: TransformAttributes) -> TokenStrea
                         vmctx: instance.vmctx_mut_ptr(),
                     }
                 }
-            }
-            impl super :: #ident for Wrapper {
+
                 #wrapper_impl
             }
 

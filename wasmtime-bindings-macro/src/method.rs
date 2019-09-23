@@ -26,6 +26,8 @@ pub(crate) struct TransformSignatureResult {
     pub ret_conversion: TokenStream,
     pub call_args: TokenStream,
     pub sig_build: TokenStream,
+    pub cb_abi_params: TokenStream,
+    pub cb_abi_return: TokenStream,
     pub cb_params_conversion: TokenStream,
     pub cb_ret_conversion: TokenStream,
     pub cb_call_args: TokenStream,
@@ -40,6 +42,7 @@ pub(crate) fn transform_sig(
     let mut call_args = TokenStream::new();
     let mut sig_build = TokenStream::new();
 
+    let mut cb_abi_params = TokenStream::new();
     let mut cb_params_conversion = TokenStream::new();
     let mut cb_call_args = TokenStream::new();
 
@@ -87,6 +90,10 @@ pub(crate) fn transform_sig(
                         #wasmtime_bindings_common :: get_ir_type::<<#context_name as #wasmtime_bindings_common :: WasmMem>::Abi>()
                     ));
                 });
+                let param_ty = sig.original_params[i];
+                cb_abi_params.extend(quote! {
+                    #id: #param_ty,
+                });
                 cb_params_conversion.extend(quote! {
                     let #internal_id = _ctx.as_off(#id);
                 });
@@ -104,6 +111,10 @@ pub(crate) fn transform_sig(
                     sig.params.push(ir::AbiParam::new(
                         #wasmtime_bindings_common :: get_ir_type::<<#ty as #wasmtime_bindings_common :: AbiPrimitive>::Abi>()
                     ));
+                });
+                let param_ty = sig.original_params[i];
+                cb_abi_params.extend(quote! {
+                    #id: #param_ty,
                 });
                 cb_params_conversion.extend(quote! {
                     let #internal_id = #id.convert_to_abi();
@@ -160,6 +171,11 @@ pub(crate) fn transform_sig(
         ),
     };
     sig_build.extend(sig_return);
+    let cb_abi_return = if let Some(ref r) = sig.original_result {
+        quote! { -> #r }
+    } else {
+        TokenStream::new()
+    };
 
     TransformSignatureResult {
         abi_params,
@@ -168,6 +184,8 @@ pub(crate) fn transform_sig(
         ret_conversion,
         call_args,
         sig_build,
+        cb_abi_params,
+        cb_abi_return,
         cb_params_conversion,
         cb_ret_conversion,
         cb_call_args,
@@ -225,14 +243,16 @@ pub(crate) fn wrap_method(f: ItemFn, attr: TransformAttributes) -> TokenStream {
         ret_conversion,
         call_args,
         sig_build,
+        cb_abi_params,
+        cb_abi_return,
         cb_params_conversion,
         cb_ret_conversion,
         cb_call_args,
     } = transform_sig(&rsig, context_name, wasmtime_bindings_common.clone());
 
     let def_module = if let Some(mod_name) = attr.module {
-        let inputs = &sig.inputs;
-        let output = &sig.output;
+        // let inputs = &sig.inputs;
+        // let output = &sig.output;
         // TODO ensure "good" vmctx was passed in params?
         quote! {
             #vis mod #mod_name {
@@ -255,7 +275,7 @@ pub(crate) fn wrap_method(f: ItemFn, attr: TransformAttributes) -> TokenStream {
                             export,
                         }
                     }
-                    pub fn call(&self, #inputs) #output {
+                    pub fn call(&self, #cb_abi_params) #cb_abi_return {
                         type F = extern fn(#abi_params) #abi_return;
                         let (_f, vmctx) = #wasmtime_bindings_common :: get_body(&self . export);
                         let _f: F = unsafe { std::mem::transmute(_f) };
@@ -269,7 +289,7 @@ pub(crate) fn wrap_method(f: ItemFn, attr: TransformAttributes) -> TokenStream {
                     #wasmtime_bindings_common :: FnMetadata {
                         name: stringify!(#name),
                         signature: signature(),
-                        address: unsafe { super :: #name as *const u8 },
+                        address: super :: #name as extern fn(#abi_params) #abi_return as *const _,
                     }
                 }
             }

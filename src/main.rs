@@ -72,8 +72,10 @@ fn main() {
     let instance: InstanceHandle = panic!();
 
     let f = wrap_wasmtime_instance!(instance; module(xmodule));
-    let _ = f.test2();
+    let _: MyResult = f.test(&mut 2, 0);
 
-    let f = wrap_wasmtime_method!("export" in instance; module(test2_mod));
-    let _ = f.call();
+    // MAYBE
+    // wrap_wasmtime_method!("export" in instance; fn(s: &mut u8, t: u8) -> MyResult, context(WasiCtx));
+    let f = wrap_wasmtime_method!("export" in instance; module(test_mod));
+    let _ = f.call(&mut 2, 0);
 }

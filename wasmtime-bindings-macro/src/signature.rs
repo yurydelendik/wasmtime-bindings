@@ -27,6 +27,8 @@ pub(crate) struct Parameter<'a> {
 pub(crate) struct MethodSignature<'a> {
     pub(crate) params: Vec<Parameter<'a>>,
     pub(crate) result: Option<Return<'a>>,
+    pub(crate) original_params: Vec<Option<&'a Type>>,
+    pub(crate) original_result: Option<&'a Type>,
 }
 
 pub(crate) fn read_signature<'a>(
@@ -34,6 +36,7 @@ pub(crate) fn read_signature<'a>(
     context: &Option<Path>,
 ) -> MethodSignature<'a> {
     let mut params = Vec::new();
+    let mut original_params = Vec::new();
     for i in &sig.inputs {
         match i {
             FnArg::Typed(t) => {
@@ -78,6 +81,7 @@ pub(crate) fn read_signature<'a>(
                     _ => panic!("Unsupported param type declaration"),
                 };
                 params.push(Parameter { id, ty });
+                original_params.push(Some(&*t.ty));
             }
             FnArg::Receiver(r) => {
                 assert!(r.attrs.is_empty());
@@ -86,17 +90,26 @@ pub(crate) fn read_signature<'a>(
                     id: None,
                     ty: ParameterType::SelfRef(r.mutability.clone().into()),
                 });
+                original_params.push(None);
             }
         }
     }
-    let result = if let ReturnType::Type(_, ref rt) = sig.output {
-        Some(match **rt {
-            Type::Ptr(ref pt) => Return::Ptr(&**rt, PtrOrRef::Ptr, pt.mutability.clone()),
-            Type::Path(_) => Return::Simple(&**rt),
-            _ => panic!("Unsupported result type declaration"),
-        })
+    let (result, original_result) = if let ReturnType::Type(_, ref rt) = sig.output {
+        (
+            Some(match **rt {
+                Type::Ptr(ref pt) => Return::Ptr(&**rt, PtrOrRef::Ptr, pt.mutability.clone()),
+                Type::Path(_) => Return::Simple(&**rt),
+                _ => panic!("Unsupported result type declaration"),
+            }),
+            Some(&**rt),
+        )
     } else {
-        None
+        (None, None)
     };
-    MethodSignature { params, result }
+    MethodSignature {
+        params,
+        result,
+        original_params,
+        original_result,
+    }
 }
